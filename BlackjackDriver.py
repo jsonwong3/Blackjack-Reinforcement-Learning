@@ -5,10 +5,6 @@ import time
 
 import BlackjackPlayer
 
-# BUGS WIRH ACE IN HAND, BUSTING WHEN IT SHOULDNT
-# Merge files together into one, create diff classes
-# change code so that players can only have 1 hand
-
 # Clears user interface
 def clear():
     # For windows
