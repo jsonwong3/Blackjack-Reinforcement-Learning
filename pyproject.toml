@@ -6,3 +6,15 @@ dependencies = [
     "matplotlib>=3.11.2",
     "numpy>=2.5.4",
 ]
+
+[project.scripts]
+blackjack = "blackjack.game:play"
+train = "blackjack.agent:main"
+
+[build-system]
+requires = ["uv_build>=0.13.8,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "blackjack"
+module-root = ""

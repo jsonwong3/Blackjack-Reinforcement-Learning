@@ -1,5 +1,5 @@
 import numpy as np
-from constants import HANDS, CARDS, REWARD
+from .constants import HANDS, CARDS, REWARD
 
 def enviroment(p_key, d_key, action, choose_action):
     '''

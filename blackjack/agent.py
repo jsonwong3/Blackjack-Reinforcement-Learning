@@ -2,8 +2,12 @@ import numpy as np
 import pickle
 import matplotlib
 import matplotlib.pyplot as plt
-from constants import *
-from blackjack import enviroment, showdown
+from pathlib import Path
+from .constants import *
+from .game import enviroment, showdown
+
+QTABLE_PATH = Path(__file__).resolve().parent.parent / 'models' / 'QTable_new.pkl'
+QTABLE = pickle.load(open(QTABLE_PATH, 'rb'))
 
 def run_simulation(t, n=1000):
     '''
@@ -152,8 +156,12 @@ def save_QTable():
     Saves the Q-Table in pickel file
     '''
     
-    pickle.dump(QTABLE, open('QTable_new.pkl', 'wb'))
+    pickle.dump(QTABLE, open(QTABLE_PATH, 'wb'))
 
-run_simulation(DEFINITE, 10000)
-show_QTable()
-save_QTable()
+def main():
+    run_simulation(DEFINITE, 10000)
+    show_QTable()
+    save_QTable()
+
+if __name__ == '__main__':
+    main()
