@@ -1,7 +1,8 @@
 import numpy as np
 import pickle
-import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
+from matplotlib.patches import Patch
 import argparse
 from pathlib import Path
 from .constants import *
@@ -9,6 +10,7 @@ from .game import enviroment, showdown
 
 QTABLE_PATH = Path(__file__).resolve().parent.parent / 'models' / 'QTable_new.pkl'
 COUNTS_PATH = QTABLE_PATH.with_name('QCounts_new.pkl')                  # Times each (hand, dealer, action) was updated
+IMAGE_PATH = QTABLE_PATH.parent.parent / 'docs' / 'strategy.png'       # Strategy chart for the README
 
 if QTABLE_PATH.exists() and COUNTS_PATH.exists():
     QTABLE = pickle.load(open(QTABLE_PATH, 'rb'))
@@ -139,43 +141,56 @@ def update_agent(steps, d_key, reward):
     COUNTS[p_key,d_key,action] += 1
     QTABLE[p_key,d_key,action] += tmprl_diff / COUNTS[p_key,d_key,action]         # Learning rate 1/N
 
-def show_QTable():
+def show_QTable(save_path=None, show=True):
     '''
-    Display the agents most optimal action for each scenerio
+    Display the agents most optimal action for each scenerio,
+    optionally saving the chart as an image
     '''
-    
-    plt.rcParams["figure.figsize"] = (5,10)
-    best_decision = np.zeros((len(HANDS), 10))
 
-    for i in range(len(HANDS)):
-        for j in range(0,10):
-            best_decision[i,j] = np.argmax(QTABLE[i,j,:])
-    
+    best_decision = np.argmax(QTABLE, axis=2)
+    best_decision[9, :] = 0                                             # Blackjack (A10) always stands
+
     dlr_key = ['2','3','4','5','6','7','8','9','10','A']
-    plr_key = [v[0] for i, v in enumerate(HANDS)]
-    
-    fig, ax = plt.subplots()
-    im = ax.imshow(best_decision)
-    
-    ax.set_xticks(np.arange(len(dlr_key)))
-    ax.set_yticks(np.arange(len(plr_key)))
-    
-    ax.set_xticklabels(dlr_key)
-    ax.set_yticklabels(plr_key)
-    
-    plt.setp(ax.get_xticklabels(), rotation=90, ha="right",
-             rotation_mode="anchor")
-    
+    plr_key = [v[0] for v in HANDS]
     action_word = {0:'S', 1:'H', 2:'D'}
-    
+    action_name = {0:'Stand', 1:'Hit', 2:'Double'}
+    colors = ['#2a78d6', '#eb6834', '#1baf7a']                          # Stand, Hit, Double
+    surface, ink, muted = '#fcfcfb', '#0b0b0b', '#52514e'
+
+    fig, ax = plt.subplots(figsize=(5, 10.5), facecolor=surface)
+    ax.set_facecolor(surface)
+    ax.pcolormesh(best_decision, cmap=ListedColormap(colors), vmin=-0.5, vmax=2.5,
+                  edgecolors=surface, linewidth=2)
+    ax.axhline(10, color=surface, linewidth=8)                         # Gap between soft and hard hands
+    ax.invert_yaxis()
+
     for i in range(len(plr_key)):
         for j in range(len(dlr_key)):
-            avg_return = str(np.round(np.average(QTABLE[i,j,:]), 1))
-            text = ax.text(j, i, avg_return,
-                           ha="center", va="center", color="black", fontsize="x-small")
-    
-    ax.set_title("Agents Decision Matrix")
-    plt.show()
+            ax.text(j + 0.5, i + 0.5, action_word[best_decision[i,j]],
+                    ha="center", va="center", color=ink, fontsize=9, fontweight="bold")
+
+    ax.set_xticks(np.arange(len(dlr_key)) + 0.5, dlr_key)
+    ax.set_yticks(np.arange(len(plr_key)) + 0.5, plr_key)
+    ax.xaxis.tick_top()
+    ax.xaxis.set_label_position('top')
+    ax.set_xlabel('Dealer upcard', color=muted, labelpad=8)
+    ax.set_ylabel('Player hand', color=muted)
+    ax.tick_params(length=0, colors=ink)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    handles = [Patch(color=colors[a], label=f'{action_word[a]} = {action_name[a]}') for a in range(3)]
+    ax.legend(handles=handles, loc='upper center', bbox_to_anchor=(0.5, 0), ncol=3,
+              frameon=False, labelcolor=ink, handlelength=1, columnspacing=1.5)
+
+    fig.suptitle("Agent's learned strategy", color=ink, fontsize=13, fontweight="bold")
+    fig.tight_layout()
+
+    if save_path:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=150, facecolor=surface)
+    if show:
+        plt.show()
 
 def save_QTable():
     '''
@@ -189,7 +204,16 @@ def main():
     parser = argparse.ArgumentParser(description='Train the blackjack Q-learning agent')
     parser.add_argument('--fresh', action='store_true', help='ignore the saved Q-table and start from zeros')
     parser.add_argument('--seed', type=int, help='random seed, for a repeatable run')
+    parser.add_argument('--plot-only', action='store_true', help='skip training, just chart the saved Q-table')
     args = parser.parse_args()
+
+    if args.plot_only:
+        if not COUNTS.any():
+            print('No trained Q-table to plot, run training first')
+            return
+        show_QTable(IMAGE_PATH)
+        print(f'Saved {IMAGE_PATH}')
+        return
 
     if args.seed is not None:
         np.random.seed(args.seed)
@@ -199,8 +223,9 @@ def main():
     print('Continuing from the saved Q-table' if COUNTS.any() else 'Starting from a fresh Q-table')
 
     run_simulation(DEFINITE, 10000)
-    show_QTable()
     save_QTable()
+    show_QTable(IMAGE_PATH)
+    print(f'Saved {IMAGE_PATH}')
 
 if __name__ == '__main__':
     main()
