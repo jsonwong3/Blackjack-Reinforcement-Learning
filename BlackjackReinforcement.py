@@ -25,7 +25,7 @@ def run_simulation(t, n=1000):
                 for p_key in range(len(HANDS)):                                 # Players Hand
                     action = choose_action(p_key, d_key)                        # Get Optimal Action
                     hand_value, next_key = enviroment(p_key, d_key, action)     # Compute Action within Enviroment
-                    reward, d_value = showdown(hand_value, d_key, action)       # Execute Dealer Action and Return Reward
+                    reward, d_value = showdown(hand_value, d_key, action, p_key == 9)  # Execute Dealer Action and Return Reward
                     update_agent(p_key, next_key, d_key, action, reward)        # Update Q-Table with Reward
                     
                     #print(f'Agent Hand: {HANDS[p_key][0]}, '
@@ -42,7 +42,7 @@ def run_simulation(t, n=1000):
             
             action = choose_action(p_key, d_key)                        # Get Optimal Action
             hand_value, next_key = enviroment(p_key, d_key, action)     # Compute Action within Enviroment
-            reward, d_value = showdown(hand_value, d_key, action)       # Execute Dealer Action and Return Reward            
+            reward, d_value = showdown(hand_value, d_key, action, p_key == 9)  # Execute Dealer Action and Return Reward
             
             print(f'Agent Hand: {HANDS[p_key][0]}, '
                                   f'Inital Action: {action}, '
@@ -74,6 +74,9 @@ def choose_action(p_key, d_key, max_idx=3):
         Index of the action the agent has choosen
     '''
 
+    if p_key == 9:                                                      # Blackjack (A10) always stands
+        return 0
+
     sorted_actions = np.argsort(QTABLE[p_key, d_key,:max_idx])
     idx = -2 if np.random.randint(0,3) == 0 else -1
     
@@ -104,13 +107,13 @@ def enviroment(p_key, d_key, action):
        Final value of the agents hand
     '''
     p_val = HANDS[p_key][1]
-    A_count = HANDS[p_key][0].count('A')
+    A_count = min(1, HANDS[p_key][0].count('A'))                        # At most one ace is still counted as 11
     
     final_value, next_key = p_val, p_key
 
     if action != 0:
         # Draws additional card
-        next_card = int(np.random.choice(CARDS, 1))
+        next_card = int(np.random.choice(CARDS))
         if next_card == 11:
             A_count += 1
         final_value = p_val + next_card
@@ -134,7 +137,7 @@ def enviroment(p_key, d_key, action):
 
     return final_value, next_key
 
-def showdown(p_value, d_key, action):
+def showdown(p_value, d_key, action, natural=False):
     '''
     Execute the dealers turn and return the appropriate reward
     
@@ -161,10 +164,11 @@ def showdown(p_value, d_key, action):
     d_value = d_key + 2
     A_count = int(d_key == 9)
     bet = REWARD * max(1, action)
+    d_cards = 1
 
     while d_value < 17:
         # Draws additional card
-        next_card = int(np.random.choice(CARDS, 1))
+        next_card = int(np.random.choice(CARDS))
         if next_card == 11:
             A_count += 1
         d_value += next_card
@@ -172,15 +176,22 @@ def showdown(p_value, d_key, action):
         # Reduce value of ace if required
         while d_value > 21 and A_count > 0:
             d_value -= 10
-            A_count -= 1 
+            A_count -= 1
+        d_cards += 1
+
+    d_natural = d_cards == 2 and d_value == 21
 
     # Evaluate the showdown and determine the reward
-    if p_value > 21:
-        bet = -bet
-    elif p_value == d_value: 
+    if natural and d_natural:
         bet = 0
-    elif p_value == 21:
+    elif d_natural:
+        bet = -REWARD                       # Dealer peeks: only the original bet is lost
+    elif natural:
         bet = bet * 1.5
+    elif p_value > 21:
+        bet = -bet
+    elif p_value == d_value:
+        bet = 0
     elif d_value > 21:
         pass
     elif p_value < d_value:
