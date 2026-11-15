@@ -3,6 +3,7 @@ import pickle
 import matplotlib
 import matplotlib.pyplot as plt
 from constants import *
+from blackjack import enviroment, showdown
 
 def run_simulation(t, n=1000):
     '''
@@ -24,7 +25,7 @@ def run_simulation(t, n=1000):
             for d_key in range(10):                                             # Dealers Hand
                 for p_key in range(len(HANDS)):                                 # Players Hand
                     action = choose_action(p_key, d_key)                        # Get Optimal Action
-                    hand_value, next_key = enviroment(p_key, d_key, action)     # Compute Action within Enviroment
+                    hand_value, next_key = enviroment(p_key, d_key, action, choose_action)     # Compute Action within Enviroment
                     reward, d_value = showdown(hand_value, d_key, action, p_key == 9)  # Execute Dealer Action and Return Reward
                     update_agent(p_key, next_key, d_key, action, reward)        # Update Q-Table with Reward
                     
@@ -41,7 +42,7 @@ def run_simulation(t, n=1000):
             p_key = np.random.randint(0, len(HANDS))
             
             action = choose_action(p_key, d_key)                        # Get Optimal Action
-            hand_value, next_key = enviroment(p_key, d_key, action)     # Compute Action within Enviroment
+            hand_value, next_key = enviroment(p_key, d_key, action, choose_action)     # Compute Action within Enviroment
             reward, d_value = showdown(hand_value, d_key, action, p_key == 9)  # Execute Dealer Action and Return Reward
             
             print(f'Agent Hand: {HANDS[p_key][0]}, '
@@ -82,125 +83,6 @@ def choose_action(p_key, d_key, max_idx=3):
     
     return sorted_actions[idx]
     
-
-def enviroment(p_key, d_key, action):
-    '''
-    Process the agents action and computes the agents updated hand value.
-    If the agent hits another card, the function will recursively find the
-    next most optimal action referring to a 2 carded hand with the same value
-    as the agents hand
-    
-    Inputs:
-    ------------------------------------------------------------
-    p_key: int
-        Index of the agents hand in reference to the Q-Table
-        
-    d_key: int
-        Index of the dealers hand in reference to the Q-Table
-    
-    action: int
-        Index of the action the agent has choosen
-    
-    Output:
-    ------------------------------------------------------------
-    final_value: int
-       Final value of the agents hand
-    '''
-    p_val = HANDS[p_key][1]
-    A_count = min(1, HANDS[p_key][0].count('A'))                        # At most one ace is still counted as 11
-    
-    final_value, next_key = p_val, p_key
-
-    if action != 0:
-        # Draws additional card
-        next_card = int(np.random.choice(CARDS))
-        if next_card == 11:
-            A_count += 1
-        final_value = p_val + next_card
-        
-        # Reduce value of ace if required
-        while final_value > 21 and A_count > 0:
-            final_value -= 10
-            A_count -= 1
-
-        # Continue to find the next optimal action using the new key assigned
-        if final_value < 21 and action == 1:
-            # Find 2 carded hand with same value in search for next optimal action
-            if A_count > 0:
-                next_key = [i for i, v in enumerate(HANDS[:10]) if v[1] == final_value][0]
-            else:
-                next_key = 10 + [i for i, v in enumerate(HANDS[10:]) if v[1] == final_value][0]
-
-            # Get optimal action excluding doubling down
-            next_action = choose_action(next_key, d_key, 2)
-            final_value, dump_key = enviroment(next_key, d_key, next_action)             
-
-    return final_value, next_key
-
-def showdown(p_value, d_key, action, natural=False):
-    '''
-    Execute the dealers turn and return the appropriate reward
-    
-    Inputs:
-    ------------------------------------------------------------
-    p_value: int
-        Final value of the agents hand
-        
-    d_key: int
-        Index of the dealers hand in reference to the Q-Table
-    
-    action: int
-        Index of the inital action the agent has choosen
-    
-    Output:
-    ------------------------------------------------------------
-    final_reward: int
-       Reward which the agent receives
-    
-    d_value: int 
-       Final value of the dealers hand
-    '''
-  
-    d_value = d_key + 2
-    A_count = int(d_key == 9)
-    bet = REWARD * max(1, action)
-    d_cards = 1
-
-    while d_value < 17:
-        # Draws additional card
-        next_card = int(np.random.choice(CARDS))
-        if next_card == 11:
-            A_count += 1
-        d_value += next_card
-        
-        # Reduce value of ace if required
-        while d_value > 21 and A_count > 0:
-            d_value -= 10
-            A_count -= 1
-        d_cards += 1
-
-    d_natural = d_cards == 2 and d_value == 21
-
-    # Evaluate the showdown and determine the reward
-    if natural and d_natural:
-        bet = 0
-    elif d_natural:
-        bet = -REWARD                       # Dealer peeks: only the original bet is lost
-    elif natural:
-        bet = bet * 1.5
-    elif p_value > 21:
-        bet = -bet
-    elif p_value == d_value:
-        bet = 0
-    elif d_value > 21:
-        pass
-    elif p_value < d_value:
-        bet = -bet
-    elif p_value > d_value: 
-        pass        
-
-    return bet, d_value
-
 def update_agent(p_key, next_key, d_key, action, reward):
     '''
     Update the agents Q-Table after given a reward
@@ -226,7 +108,6 @@ def update_agent(p_key, next_key, d_key, action, reward):
     tmprl_diff_target = reward + DISCOUNT_FACOTR * max(QTABLE[next_key, d_key,:2])
     tmprl_diff = tmprl_diff_target - QTABLE[p_key,d_key,action]
     QTABLE[p_key,d_key,action] += LEARNING_RATE * tmprl_diff
-
 
 def show_QTable():
     '''
