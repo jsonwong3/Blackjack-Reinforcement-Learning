@@ -2,12 +2,20 @@ import numpy as np
 import pickle
 import matplotlib
 import matplotlib.pyplot as plt
+import argparse
 from pathlib import Path
 from .constants import *
 from .game import enviroment, showdown
 
 QTABLE_PATH = Path(__file__).resolve().parent.parent / 'models' / 'QTable_new.pkl'
-QTABLE = pickle.load(open(QTABLE_PATH, 'rb'))
+COUNTS_PATH = QTABLE_PATH.with_name('QCounts_new.pkl')                  # Times each (hand, dealer, action) was updated
+
+if QTABLE_PATH.exists() and COUNTS_PATH.exists():
+    QTABLE = pickle.load(open(QTABLE_PATH, 'rb'))
+    COUNTS = pickle.load(open(COUNTS_PATH, 'rb'))
+else:                                                                   # No counts: saved table predates the fixed update rule
+    QTABLE = np.zeros((len(HANDS), 10, 3))
+    COUNTS = np.zeros((len(HANDS), 10, 3))
 
 def run_simulation(t, n=1000):
     '''
@@ -29,9 +37,10 @@ def run_simulation(t, n=1000):
             for d_key in range(10):                                             # Dealers Hand
                 for p_key in range(len(HANDS)):                                 # Players Hand
                     action = choose_action(p_key, d_key)                        # Get Optimal Action
-                    hand_value, next_key = enviroment(p_key, d_key, action, choose_action)     # Compute Action within Enviroment
+                    steps = [(p_key, action)]                                   # Every (state, action) taken this hand
+                    hand_value, next_key = enviroment(p_key, d_key, action, recorder(steps))     # Compute Action within Enviroment
                     reward, d_value = showdown(hand_value, d_key, action, p_key == 9)  # Execute Dealer Action and Return Reward
-                    update_agent(p_key, next_key, d_key, action, reward)        # Update Q-Table with Reward
+                    update_agent(steps, d_key, reward)                          # Update Q-Table with Reward
                     
                     #print(f'Agent Hand: {HANDS[p_key][0]}, '
                           #f'Inital Action: {action}, '
@@ -59,8 +68,9 @@ def run_simulation(t, n=1000):
 def choose_action(p_key, d_key, max_idx=3):
     '''
     Agent will refer to its Q-table for the most optimal action,
-    however it has a 33% chance of disregarding the Q-table and
-    attempt to learn a better optimal action
+    however it has an epsilon chance of disregarding the Q-table and
+    trying any allowed action. Epsilon shrinks the more often the
+    hand has been seen, down to MIN_EPSILON
     
     Inputs:
     ------------------------------------------------------------
@@ -82,36 +92,52 @@ def choose_action(p_key, d_key, max_idx=3):
     if p_key == 9:                                                      # Blackjack (A10) always stands
         return 0
 
-    sorted_actions = np.argsort(QTABLE[p_key, d_key,:max_idx])
-    idx = -2 if np.random.randint(0,3) == 0 else -1
-    
-    return sorted_actions[idx]
-    
-def update_agent(p_key, next_key, d_key, action, reward):
+    q = QTABLE[p_key, d_key,:max_idx]
+    epsilon = max(MIN_EPSILON, EPSILON_DECAY / (EPSILON_DECAY + COUNTS[p_key, d_key].sum()))
+
+    if np.random.rand() < epsilon:                                      # Explore: any allowed action
+        return np.random.randint(0, max_idx)
+
+    return np.random.choice(np.flatnonzero(q == q.max()))               # Best action, ties broken randomly
+
+def recorder(steps):
+    '''
+    Wrap choose_action so every action taken after a hit is appended to steps
+    '''
+    def choose(p_key, d_key, max_idx=3):
+        action = choose_action(p_key, d_key, max_idx)
+        steps.append((p_key, action))
+        return action
+    return choose
+
+def update_agent(steps, d_key, reward):
     '''
     Update the agents Q-Table after given a reward
-    
+
     Inputs:
     ------------------------------------------------------------
-    p_key: int
-        Index of the agents hand in reference to the Q-Table
-    
-    next_key: int
-        Index of the agents hand after the first action in reference to the Q-Table
-        
+    steps: list of (int, int)
+        Every (hand index, action) the agent took this hand, in order
+
     d_key: int
         Index of the dealers hand in reference to the Q-Table
-    
-    action: int
-        Index of the inital action the agent has choosen
-        
+
     reward: int
        Reward which the agent receives
     '''
-    
-    tmprl_diff_target = reward + DISCOUNT_FACOTR * max(QTABLE[next_key, d_key,:2])
-    tmprl_diff = tmprl_diff_target - QTABLE[p_key,d_key,action]
-    QTABLE[p_key,d_key,action] += LEARNING_RATE * tmprl_diff
+
+    # Non-final steps: no reward yet, bootstrap from the next state (stand/hit only)
+    for (p_key, action), (next_key, _) in zip(steps, steps[1:]):
+        tmprl_diff_target = DISCOUNT_FACOTR * max(QTABLE[next_key, d_key,:2])
+        tmprl_diff = tmprl_diff_target - QTABLE[p_key,d_key,action]
+        COUNTS[p_key,d_key,action] += 1
+        QTABLE[p_key,d_key,action] += tmprl_diff / COUNTS[p_key,d_key,action]     # Learning rate 1/N
+
+    # Final step: the hand is over, so the target is just the reward
+    p_key, action = steps[-1]
+    tmprl_diff = reward - QTABLE[p_key,d_key,action]
+    COUNTS[p_key,d_key,action] += 1
+    QTABLE[p_key,d_key,action] += tmprl_diff / COUNTS[p_key,d_key,action]         # Learning rate 1/N
 
 def show_QTable():
     '''
@@ -157,8 +183,21 @@ def save_QTable():
     '''
     
     pickle.dump(QTABLE, open(QTABLE_PATH, 'wb'))
+    pickle.dump(COUNTS, open(COUNTS_PATH, 'wb'))
 
 def main():
+    parser = argparse.ArgumentParser(description='Train the blackjack Q-learning agent')
+    parser.add_argument('--fresh', action='store_true', help='ignore the saved Q-table and start from zeros')
+    parser.add_argument('--seed', type=int, help='random seed, for a repeatable run')
+    args = parser.parse_args()
+
+    if args.seed is not None:
+        np.random.seed(args.seed)
+    if args.fresh:
+        QTABLE[:] = 0
+        COUNTS[:] = 0
+    print('Continuing from the saved Q-table' if COUNTS.any() else 'Starting from a fresh Q-table')
+
     run_simulation(DEFINITE, 10000)
     show_QTable()
     save_QTable()

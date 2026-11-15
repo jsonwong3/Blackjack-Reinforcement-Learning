@@ -1,6 +1,7 @@
 REWARD = 10
-LEARNING_RATE = 0.4
-DISCOUNT_FACOTR  = 0.9
+DISCOUNT_FACOTR  = 1.0
+EPSILON_DECAY = 1000                # Visits to a hand before exploration halves
+MIN_EPSILON = 0.1                   # Exploration never drops below this
 
 DEFINITE = 'definite'
 RANDOM = 'random'
